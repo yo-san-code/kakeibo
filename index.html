@@ -1067,8 +1067,8 @@
         addExpenses(made); setPaste(""); alert(`${made.length}件を取り込みました`);
       };
       const exportCSV = () => { const name = (id) => cats.find((c) => c.id === id)?.name || id; const body = "date,category,amount,memo,source\n" + [...exps].sort((a, b) => (a.date < b.date ? 1 : -1)).map((e) => `${e.date},${name(e.categoryId)},${e.amount},"${e.memo || ""}",${e.source || ""}`).join("\n"); dl(body, "kakeibo.csv", "text/csv"); };
-      const exportJSON = () => dl(JSON.stringify({ cats, exps, incomes, recurring, settings }, null, 2), "kakeibo-backup.json", "application/json");
-      const importJSON = (file) => { const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (d.cats && d.exps) { setCats(d.cats); setExps(d.exps); if (d.incomes) setIncomes(d.incomes); if (d.recurring) setRecurring(d.recurring); if (d.settings) setSettings(d.settings); alert("復元しました"); } else alert("形式が違います"); } catch { alert("読み込めませんでした"); } }; r.readAsText(file); };
+      const exportJSON = () => dl(JSON.stringify({ cats, exps, incomes, recurring, settings, sources }, null, 2), "kakeibo-backup.json", "application/json");
+      const importJSON = (file) => { const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (d.cats && d.exps) { setCats(d.cats); setExps(d.exps); if (d.incomes) setIncomes(d.incomes); if (d.recurring) setRecurring(d.recurring); if (d.settings) setSettings(d.settings); if (d.sources) setSources(d.sources); alert("復元しました"); } else alert("形式が違います"); } catch { alert("読み込めませんでした"); } }; r.readAsText(file); };
       return (
         <div className="space-y-5">
           <Section title="締め日（給与サイクル）">
