@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>家計簿</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#7c3aed" />
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="家計簿" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
+  <style>
+    html, body { background: #FBFAF8; }
+    /* Safe area insets for iPhone notch / Dynamic Island / Home Indicator */
+    :root {
+      --sat: env(safe-area-inset-top, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+      --sal: env(safe-area-inset-left, 0px);
+      --sar: env(safe-area-inset-right, 0px);
+    }
+    #root { padding-bottom: var(--sab); }
+    .nav-safe { padding-bottom: var(--sab); }
+  </style>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.22.20/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    window.storage = {
+      get: async (key) => { const v = localStorage.getItem(key); return v ? { value: v } : null; },
+      set: async (key, v) => { localStorage.setItem(key, v); }
+    };
+    window.onerror = (msg, src, line, col, err) => {
+      document.getElementById('root').innerHTML =
+        '<div style="padding:20px;color:red;font-family:monospace;font-size:12px;white-space:pre-wrap">' +
+        'エラー: ' + msg + '\n' + (src||'') + ':' + line + '\n' + (err&&err.stack||'') + '</div>';
+    };
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+    }
+  </script>
+</head>
+<body>
+  <div id="root"><p id="status" style="padding:20px;font-family:sans-serif;color:#666">読み込み中… CDNスクリプトを待っています</p></div>
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useMemo, useRef, useCallback } = React;
+    function LucideIcon({ size=24, strokeWidth=1.8, className="", children }) {
+      return (
+        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24"
+          fill="none" stroke="currentColor" strokeWidth={strokeWidth}
+          strokeLinecap="round" strokeLinejoin="round" className={className}>
+          {children}
+        </svg>
+      );
+    }
+    const mk = (children) => ({ size, strokeWidth, className }) =>
+      <LucideIcon size={size} strokeWidth={strokeWidth} className={className}>{children}</LucideIcon>;
+
+    const Home = mk(<><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></>);
+    const PlusCircle = mk(<><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="16"/><line x1="8" x2="16" y1="12" y2="12"/></>);
+    const ScrollText = mk(<><path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M15 8h-5"/><path d="M15 12h-5"/></>);
+    const SlidersHorizontal = mk(<><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></>);
+    const BarChart3 = mk(<><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></>);
+    const Trash2 = mk(<><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></>);
+    const Pencil = mk(<><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></>);
+    const Download = mk(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></>);
+    const Upload = mk(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></>);
+    const RotateCcw = mk(<><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></>);
+    const Check = mk(<path d="M20 6 9 17l-5-5"/>);
+    const X = mk(<><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>);
+    const Wallet = mk(<><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></>);
+    const Repeat = mk(<><path d="m17 2 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></>);
+    const Camera = mk(<><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></>);
+    const Loader2 = mk(<path d="M21 12a9 9 0 1 1-6.219-8.56"/>);
+    const PiggyBank = mk(<><path d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2h0V5z"/><path d="M2 9v1a2 2 0 0 0 2 2h1"/><path d="M16 11h0"/></>);
+    const Store = mk(<><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/></>);
+    const GripVertical = mk(<><line x1="9" x2="15" y1="7" y2="7"/><line x1="9" x2="15" y1="12" y2="12"/><line x1="9" x2="15" y1="17" y2="17"/></>);
+
+    // ---------- date helpers ----------
+    const pad = (n) => String(n).padStart(2, "0");
+    const isoOf = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const todayISO = () => isoOf(new Date());
+    const parseISO = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+    const addDaysISO = (s, n) => { const d = parseISO(s); d.setDate(d.getDate() + n); return isoOf(d); };
+    const daysBetween = (a, b) => Math.round((parseISO(b) - parseISO(a)) / 86400000);
+    const dim = (y, m) => new Date(y, m + 1, 0).getDate();
+    const WD = ["日", "月", "火", "水", "木", "金", "土"];
+    const fmtMD = (s) => { const d = parseISO(s); return `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`; };
+    const uid = () => (crypto?.randomUUID?.() || `id_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    const yen = (n) => "¥" + Math.round(n || 0).toLocaleString("ja-JP");
+    const signYen = (n) => (n > 0 ? "+" : n < 0 ? "−" : "±") + "¥" + Math.round(Math.abs(n)).toLocaleString("ja-JP");
+
+    // 日本の祝日（2025-2030内蔵・振替休日含む）+ 自動更新
+    let HOLIDAYS = new Set([
+      "2025-01-01","2025-01-13","2025-02-11","2025-02-23","2025-02-24","2025-03-20","2025-04-29","2025-05-03","2025-05-04","2025-05-05","2025-05-06","2025-07-21","2025-08-11","2025-09-15","2025-09-23","2025-10-13","2025-11-03","2025-11-23","2025-11-24",
+      "2026-01-01","2026-01-12","2026-02-11","2026-02-23","2026-03-20","2026-04-29","2026-05-03","2026-05-04","2026-05-05","2026-05-06","2026-07-20","2026-08-11","2026-09-21","2026-09-22","2026-09-23","2026-10-12","2026-11-03","2026-11-23",
+      "2027-01-01","2027-01-11","2027-02-11","2027-02-23","2027-03-21","2027-03-22","2027-04-29","2027-05-03","2027-05-04","2027-05-05","2027-07-19","2027-08-11","2027-09-20","2027-09-23","2027-10-11","2027-11-03","2027-11-23",
+      "2028-01-01","2028-01-10","2028-02-11","2028-02-23","2028-03-20","2028-04-29","2028-05-03","2028-05-04","2028-05-05","2028-07-17","2028-08-11","2028-09-18","2028-09-22","2028-10-09","2028-11-03","2028-11-23",
+      "2029-01-01","2029-01-08","2029-02-11","2029-02-12","2029-02-23","2029-03-20","2029-04-29","2029-04-30","2029-05-03","2029-05-04","2029-05-05","2029-07-16","2029-08-11","2029-09-17","2029-09-23","2029-09-24","2029-10-08","2029-11-03","2029-11-23",
+      "2030-01-01","2030-01-14","2030-02-11","2030-02-23","2030-03-20","2030-04-29","2030-05-03","2030-05-04","2030-05-05","2030-05-06","2030-07-15","2030-08-11","2030-08-12","2030-09-16","2030-09-23","2030-10-14","2030-11-03","2030-11-04","2030-11-23",
+    ]);
+    // ローカルキャッシュから追加（同期）
+    try { const c = localStorage.getItem("kakeibo:holidays"); if (c) JSON.parse(c).forEach(d => HOLIDAYS.add(d)); } catch {}
+    // バックグラウンドで最新データを取得・キャッシュ（2031年以降に対応）
+    fetch("https://holidays-jp.github.io/api/v1/date.json")
+      .then(r => r.json())
+      .then(data => { const ds = Object.keys(data); ds.forEach(d => HOLIDAYS.add(d)); try { localStorage.setItem("kakeibo:holidays", JSON.stringify(ds)); } catch {} })
+      .catch(() => {});
+
+    function adjPayday(y, m, day, weekend, holiday) {
+      const d = new Date(y, m, Math.min(day, dim(y, m)));
+      for (let i = 0; i < 12; i++) {
+        const w = d.getDay();
+        const isWk = weekend && (w === 0 || w === 6);
+        const isHol = holiday && HOLIDAYS.has(isoOf(d));
+        if (isWk || isHol) d.setDate(d.getDate() - 1); else break;
+      }
+      return d;
+    }
+    function periodForDate(ref, day, weekend, holiday) {
+      const y = ref.getFullYear(), m = ref.getMonth();
+      const thisPd = adjPayday(y, m, day, weekend, holiday);
+      let startD, endD;
+      if (ref.getTime() >= thisPd.getTime()) {
+        startD = thisPd; endD = adjPayday(y, m + 1, day, weekend, holiday); endD = new Date(endD); endD.setDate(endD.getDate() - 1);
+      } else {
+        startD = adjPayday(y, m - 1, day, weekend, holiday); endD = new Date(thisPd); endD.setDate(endD.getDate() - 1);
+      }
+      return { start: isoOf(startD), end: isoOf(endD) };
+    }
+    const prevPeriodOf = (p, day, weekend, holiday) => periodForDate(parseISO(addDaysISO(p.start, -1)), day, weekend, holiday);
+    const numWeeks = (p) => Math.ceil((daysBetween(p.start, p.end) + 1) / 7);
+    const weekIndexOf = (iso, startISO) => Math.floor(daysBetween(startISO, iso) / 7);
+    function periodWeekSegs(period) {
+      const segs = []; let cur = period.start;
+      for (let i = 0; i < 60 && cur <= period.end; i++) {
+        const d = parseISO(cur);
+        const toSun = (7 - d.getDay()) % 7;
+        let sun = addDaysISO(cur, toSun);
+        if (sun > period.end) sun = period.end;
+        segs.push({ start: cur, end: sun, days: daysBetween(cur, sun) + 1 });
+        cur = addDaysISO(sun, 1);
+      }
+      return segs;
+    }
+
+    const DEFAULT_CATS = [
+      { id: "food", name: "食費", budget: 40000, color: "#0f766e" },
+      { id: "daily", name: "生活必需品", budget: 15000, color: "#b45309" },
+      { id: "med", name: "医療費", budget: 5000, color: "#0369a1" },
+      { id: "cloth", name: "衣服費", budget: 10000, color: "#7c3aed" },
+      { id: "leisure", name: "レジャー費", budget: 15000, color: "#db2777" },
+    ];
+    const DEFAULT_SETTINGS = { payday: 20, weekend: true, holiday: true, carryover: false };
+    const DEFAULT_SOURCES = ["店", "Amazon", "その他"];
+
+    async function loadData(key, fb) { try { const r = await window.storage.get(key); return r?.value ? JSON.parse(r.value) : fb; } catch { return fb; } }
+    async function saveData(key, v) { try { await window.storage.set(key, JSON.stringify(v)); } catch (e) { console.error(e); } }
+
+    function readImage(file, maxW = 1600) {
+      return new Promise((resolve, reject) => {
+        const ok = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+        const fr = new FileReader();
+        fr.onload = () => {
+          const dataUrl = String(fr.result);
+          const raw = () => {
+            const m = (file.type || "").toLowerCase();
+            if (ok.includes(m)) resolve({ data: dataUrl.split(",")[1], mediaType: m });
+            else reject(new Error("この画像（HEIC等）を読み込めませんでした。"));
+          };
+          const img = new Image();
+          img.onload = () => {
+            try {
+              const w = img.width || maxW, h = img.height || maxW;
+              const scale = Math.min(1, maxW / w);
+              const cv = document.createElement("canvas");
+              cv.width = Math.max(1, Math.round(w * scale)); cv.height = Math.max(1, Math.round(h * scale));
+              cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+              resolve({ data: cv.toDataURL("image/jpeg", 0.85).split(",")[1], mediaType: "image/jpeg" });
+            } catch (e) { raw(); }
+          };
+          img.onerror = raw;
+          img.src = dataUrl;
+        };
+        fr.onerror = () => reject(new Error("画像を読み込めませんでした"));
+        fr.readAsDataURL(file);
+      });
+    }
+    async function analyzeReceipt(base64s, cats) {
+      const apiKey = localStorage.getItem("kakeibo:apiKey") || "";
+      if (!apiKey) throw new Error("設定画面でAnthropicのAPIキーを入力してください");
+      const names = cats.map((c) => c.name).join("、");
+      const imgs = (Array.isArray(base64s) ? base64s : [base64s]).map((im) => ({ type: "image", source: { type: "base64", media_type: im.mediaType || "image/jpeg", data: im.data } }));
+      const note = imgs.length > 1 ? "これは1枚の長いレシートを複数枚に分けて撮影した画像です。重複なく1枚のレシートとして結合して読み取ってください。" : "これはレシートの写真です。";
+      const prompt = `${note}買った品目を読み取り、各品目を次のいずれかに分類してください：${names}、その他。\nレシートに日付があれば読み取ってください。\n支払い方法を検出してください：「クレジット」「クレジットカード」等の表記があれば"クレジット"、「電子マネー」「iD」「PayPay」「Vポイント」等の表記があれば"電子マネー"、それ以外または不明は"現金"。\n消費税について：外税（税抜き価格＋別途消費税）の場合は、消費税額を「消費税」という品目として追加してください。内税（税込み価格）の場合は品目の金額にそのまま含めてください。\n出力はJSONのみ（説明・前置き不要）。形式：\n{"date":"YYYY-MM-DD または 空","payment_method":"クレジット|電子マネー|現金","items":[{"name":"品名","amount":数値,"category":"カテゴリ名"}]}\namountは実支払額（整数）。割引・ポイントは無視。読み取れない品目はcategoryを"その他"に。`;
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: [...imgs, { type: "text", text: prompt }] }] }),
+      });
+      let data;
+      try { data = await res.json(); } catch (e) { throw new Error("読み取りに失敗しました"); }
+      if (data && data.error) throw new Error("読み取りに失敗しました：" + (data.error.message || "APIエラー"));
+      const text = (data.content || []).map((b) => (b && b.type === "text" ? b.text : "")).join("");
+      const m = text.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error("読み取り結果を解析できませんでした。");
+      try { return JSON.parse(m[0]); } catch (e) { throw new Error("読み取り結果の形式が不正でした。"); }
+    }
+
+    function App() {
+      const [loaded, setLoaded] = useState(false);
+      const [tab, setTab] = useState("home");
+      const [cats, setCats] = useState(DEFAULT_CATS);
+      const [exps, setExps] = useState([]);
+      const [incomes, setIncomes] = useState([]);
+      const [recurring, setRecurring] = useState([]);
+      const [applied, setApplied] = useState([]);
+      const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+      const [editing, setEditing] = useState(null);
+      const [savings, setSavings] = useState([]);
+      const [sources, setSources] = useState(DEFAULT_SOURCES);
+
+      useEffect(() => { (async () => {
+        setCats(await loadData("kakeibo:cats", DEFAULT_CATS));
+        setExps(await loadData("kakeibo:exps", []));
+        setIncomes(await loadData("kakeibo:incomes", []));
+        setRecurring(await loadData("kakeibo:recurring", []));
+        setApplied(await loadData("kakeibo:applied", []));
+        setSettings(await loadData("kakeibo:settings", DEFAULT_SETTINGS));
+        setSavings(await loadData("kakeibo:savings", []));
+        setSources(await loadData("kakeibo:sources", DEFAULT_SOURCES));
+        setLoaded(true);
+      })(); }, []);
+      useEffect(() => { if (loaded) saveData("kakeibo:cats", cats); }, [cats, loaded]);
+      useEffect(() => { if (loaded) saveData("kakeibo:exps", exps); }, [exps, loaded]);
+      useEffect(() => { if (loaded) saveData("kakeibo:incomes", incomes); }, [incomes, loaded]);
+      useEffect(() => { if (loaded) saveData("kakeibo:recurring", recurring); }, [recurring, loaded]);
+      useEffect(() => { if (loaded) saveData("kakeibo:applied", applied); }, [applied, loaded]);
+      useEffect(() => { if (loaded) saveData("kakeibo:settings", settings); }, [settings, loaded]);
+      useEffect(() => { if (loaded) saveData("kakeibo:savings", savings); }, [savings, loaded]);
+      useEffect(() => { if (loaded) saveData("kakeibo:sources", sources); }, [sources, loaded]);
+
+      const period = useMemo(() => {
+        const n = new Date(); return periodForDate(new Date(n.getFullYear(), n.getMonth(), n.getDate()), settings.payday, settings.weekend, settings.holiday);
+      }, [settings]);
+
+      useEffect(() => {
+        if (!loaded) return;
+        if (applied.includes(period.start)) return;
+        if (recurring.length > 0) {
+          const rows = recurring.map((r) => ({ id: uid(), date: period.start, categoryId: r.categoryId, amount: r.amount, memo: r.name, source: "固定費" }));
+          setExps((p) => [...rows, ...p]);
+        }
+        setApplied((p) => [...p, period.start]);
+      }, [loaded, period.start, applied, recurring]);
+
+      const addExpenses = (rows) => setExps((p) => [...rows, ...p]);
+      const updateExpense = (row) => setExps((p) => p.map((e) => (e.id === row.id ? row : e)));
+      const delExpense = (id) => setExps((p) => p.filter((e) => e.id !== id));
+      const startEdit = (e) => { setEditing(e); setTab("add"); };
+
+      if (!loaded) return <div className="min-h-screen grid place-items-center bg-[#FBFAF8] text-stone-400">読み込み中…</div>;
+
+      return (
+        <div className="min-h-screen bg-[#FBFAF8] text-stone-900 antialiased">
+          <div className="max-w-md mx-auto pb-28 px-4" style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 1.5rem)" }}>
+            <header className="mb-4">
+              <div className="text-[11px] tracking-widest text-teal-700 font-semibold uppercase">あといくら</div>
+              <h1 className="text-2xl font-bold tracking-tight">家計簿</h1>
+            </header>
+            {tab === "home" && <HomeView cats={cats} exps={exps} incomes={incomes} period={period} settings={settings} />}
+            {tab === "add" && <AddView cats={cats} addExpenses={addExpenses} updateExpense={updateExpense} editing={editing} clearEdit={() => setEditing(null)} goHome={() => setTab("home")} sources={sources} />}
+            {tab === "log" && <LogView exps={exps} cats={cats} onDelete={delExpense} onEdit={startEdit} sources={sources} />}
+            {tab === "cmp" && <CompareView cats={cats} exps={exps} incomes={incomes} period={period} settings={settings} />}
+            {tab === "asset" && <SavingsView savings={savings} setSavings={setSavings} />}
+            {tab === "shop" && <ShopView exps={exps} cats={cats} sources={sources} />}
+            {tab === "set" && <SettingsView {...{ cats, setCats, exps, setExps, incomes, setIncomes, recurring, setRecurring, settings, setSettings, setApplied, period, addExpenses, sources, setSources }} />}
+          </div>
+          <nav className="nav-safe fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur border-t border-stone-200">
+            <div className="max-w-md mx-auto grid grid-cols-7">
+              {[["home", Home, "ホーム"], ["add", PlusCircle, "入力"], ["log", ScrollText, "履歴"], ["cmp", BarChart3, "比較"], ["shop", Store, "店舗"], ["asset", PiggyBank, "資産"], ["set", SlidersHorizontal, "設定"]].map(
+                ([k, Icon, label]) => (
+                  <button key={k} onClick={() => { if (k === "add") setEditing(null); setTab(k); }}
+                    className={`flex flex-col items-center gap-1 py-2.5 text-[10px] transition-colors ${tab === k ? "text-teal-700" : "text-stone-400"}`}>
+                    <Icon size={21} strokeWidth={tab === k ? 2.4 : 1.8} />{label}
+                  </button>
+                )
+              )}
+            </div>
+          </nav>
+        </div>
+      );
+    }
+
+    function HomeView({ cats, exps, incomes, period, settings }) {
+      const tISO = todayISO();
+      const todayClamped = tISO < period.start ? period.start : tISO > period.end ? period.end : tISO;
+      const daysLeftPeriod = Math.max(1, daysBetween(todayClamped, period.end) + 1);
+      const income = incomes.filter((i) => i.date >= period.start && i.date <= period.end).reduce((s, i) => s + i.amount, 0);
+      const spent = exps.filter((e) => e.date >= period.start && e.date <= period.end).reduce((s, e) => s + e.amount, 0);
+      const remainOverall = income - spent;
+      const perDayOverall = remainOverall / daysLeftPeriod;
+      const segs = periodWeekSegs(period);
+      const periodDays = daysBetween(period.start, period.end) + 1;
+      const curIdx = Math.max(0, segs.findIndex((s) => todayClamped >= s.start && todayClamped <= s.end));
+      const cs = segs[curIdx] || { start: period.start, end: period.end, days: periodDays };
+      const daysLeftWeek = Math.max(1, daysBetween(todayClamped, cs.end) + 1);
+      const earliest = exps.length ? exps.reduce((a, e) => (e.date < a ? e.date : a), exps[0].date) : null;
+      const cache = {};
+      const carryFor = (catId, p, depth) => {
+        if (!settings.carryover || depth <= 0) return 0;
+        const key = catId + "@" + p.start; if (key in cache) return cache[key];
+        const prev = prevPeriodOf(p, settings.payday, settings.weekend, settings.holiday);
+        if (!earliest || prev.end < earliest) { cache[key] = 0; return 0; }
+        const prevSpent = exps.filter((e) => e.categoryId === catId && e.date >= prev.start && e.date <= prev.end).reduce((s, e) => s + e.amount, 0);
+        const base = cats.find((c) => c.id === catId)?.budget || 0;
+        const v = base + carryFor(catId, prev, depth - 1) - prevSpent;
+        cache[key] = v; return v;
+      };
+      const catCalc = (c) => {
+        const carry = carryFor(c.id, period, 24);
+        const effBudget = c.budget + carry;
+        const weeklyBudget = effBudget * (cs.days / periodDays);
+        const spentWeek = exps.filter((e) => e.categoryId === c.id && e.date >= cs.start && e.date <= cs.end).reduce((s, e) => s + e.amount, 0);
+        const spentPeriod = exps.filter((e) => e.categoryId === c.id && e.date >= period.start && e.date <= period.end).reduce((s, e) => s + e.amount, 0);
+        const weekRemaining = weeklyBudget - spentWeek;
+        const todayLeft = weekRemaining;
+        return { weeklyBudget, spentWeek, spentPeriod, weekRemaining, todayLeft, periodRemaining: effBudget - spentPeriod, effBudget, carry };
+      };
+      return (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-stone-200/80 p-4">
+            <div className="flex items-center justify-between text-[11px] text-stone-400">
+              <span>今期 {fmtMD(period.start)} 〜 {fmtMD(period.end)}</span>
+              <span>残り {daysLeftPeriod}日 / 今週 {daysLeftWeek}日</span>
+            </div>
+            <div className="mt-3 flex items-end justify-between">
+              <div>
+                <div className="text-[11px] text-stone-400">使えるお金の残り</div>
+                <div className={`text-3xl font-bold font-mono tabular-nums leading-none ${remainOverall < 0 ? "text-rose-600" : "text-stone-900"}`}>{yen(remainOverall)}</div>
+              </div>
+              <div className="text-right text-[11px] text-stone-400 space-y-0.5 font-mono tabular-nums">
+                <div>収入 {yen(income)}</div><div>支出 {yen(spent)}</div><div>1日あたり {yen(perDayOverall)}</div>
+              </div>
+            </div>
+            {income === 0 && <div className="mt-2 text-[11px] text-amber-600">※設定で今期の給与（収入）を入れると残りが出ます</div>}
+          </div>
+          {cats.map((c) => {
+            const r = catCalc(c);
+            const weekOver = r.weekRemaining < 0;
+            const pct = r.weeklyBudget > 0 ? Math.min(100, (r.spentWeek / r.weeklyBudget) * 100) : 0;
+            const accent = weekOver ? "#b45309" : r.periodRemaining < 0 ? "#e11d48" : c.color;
+            return (
+              <div key={c.id} className="bg-white rounded-2xl border border-stone-200/80 p-4">
+                <div className="flex items-baseline justify-between">
+                  <span className="font-semibold">{c.name} <span className="text-[10px] text-stone-400 font-normal">W{curIdx + 1}/{segs.length}</span></span>
+                  <span className="text-xs text-stone-400 font-mono tabular-nums">
+                    今期 {yen(r.spentPeriod)}/{yen(r.effBudget)}
+                    {settings.carryover && r.carry !== 0 && <span className={r.carry > 0 ? "text-teal-600" : "text-rose-500"}> ({signYen(r.carry)})</span>}
+                  </span>
+                </div>
+                <div className="mt-3 flex items-end justify-between">
+                  <div>
+                    <div className="text-[11px] text-stone-400 mb-0.5">今日あと使える</div>
+                    <div className="text-3xl font-bold font-mono tabular-nums leading-none" style={{ color: accent }}>{yen(r.todayLeft)}</div>
+                  </div>
+                  <div className="text-right space-y-1">
+                    <Mini label="週の残り予算" v={r.weekRemaining} />
+                    <Mini label="週予算" v={r.weeklyBudget} />
+                  </div>
+                </div>
+                <div className="mt-3 h-1.5 rounded-full bg-stone-100 overflow-hidden"><div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: accent }} /></div>
+                <div className="mt-1.5 text-[11px] font-mono tabular-nums" style={{ color: accent }}>{weekOver ? `今週は予算オーバー ${yen(-r.weekRemaining)}（今期残り ${yen(r.periodRemaining)}）` : `今期の残り ${yen(r.periodRemaining)}`}</div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+    function Mini({ label, v }) { return (<div><span className="text-[10px] text-stone-400 mr-1.5">{label}</span><span className="text-sm font-mono tabular-nums font-medium text-stone-600">{yen(v)}</span></div>); }
+
+    function CompareView({ cats, exps, incomes, period, settings }) {
+      const prev = prevPeriodOf(period, settings.payday, settings.weekend, settings.holiday);
+      const curSegs = periodWeekSegs(period), prevSegs = periodWeekSegs(prev);
+      const nW = Math.max(curSegs.length, prevSegs.length);
+      const catTotal = (cid, p) => exps.filter((e) => e.categoryId === cid && e.date >= p.start && e.date <= p.end).reduce((s, e) => s + e.amount, 0);
+      const segWeek = (cid, segArr, wi) => { const sg = segArr[wi]; if (!sg) return 0; return exps.filter((e) => e.categoryId === cid && e.date >= sg.start && e.date <= sg.end).reduce((s, e) => s + e.amount, 0); };
+      const allTotal = (p) => exps.filter((e) => e.date >= p.start && e.date <= p.end).reduce((s, e) => s + e.amount, 0);
+      const incTotal = (p) => incomes.filter((i) => i.date >= p.start && i.date <= p.end).reduce((s, i) => s + i.amount, 0);
+      const Delta = ({ v }) => <span className={`font-mono tabular-nums ${v > 0 ? "text-rose-600" : v < 0 ? "text-teal-700" : "text-stone-400"}`}>{signYen(v)}</span>;
+      const totCur = allTotal(period), totPrev = allTotal(prev);
+      return (
+        <div className="space-y-4">
+          <div className="text-xs text-stone-500 leading-relaxed">
+            <div>今期 <b className="text-stone-700">{fmtMD(period.start)}〜{fmtMD(period.end)}</b></div>
+            <div>前期 <b className="text-stone-700">{fmtMD(prev.start)}〜{fmtMD(prev.end)}</b></div>
+          </div>
+          <div className="bg-white rounded-2xl border border-stone-200/80 p-4">
+            <div className="text-[11px] text-stone-400">支出合計の前期比</div>
+            <div className="mt-1 flex items-end justify-between">
+              <div className="text-2xl font-bold font-mono tabular-nums">{signYen(totCur - totPrev)}</div>
+              <div className="text-right text-[11px] text-stone-400 font-mono tabular-nums"><div>今期 {yen(totCur)}</div><div>前期 {yen(totPrev)}</div></div>
+            </div>
+            <div className="mt-2 pt-2 border-t border-stone-100 text-[11px] text-stone-400 font-mono tabular-nums">収入 今期 {yen(incTotal(period))} / 前期 {yen(incTotal(prev))}</div>
+          </div>
+          {cats.map((c) => {
+            const cur = catTotal(c.id, period), pr = catTotal(c.id, prev);
+            return (
+              <div key={c.id} className="bg-white rounded-2xl border border-stone-200/80 p-4">
+                <div className="flex items-baseline justify-between"><span className="font-semibold">{c.name}</span><Delta v={cur - pr} /></div>
+                <div className="text-[11px] text-stone-400 font-mono tabular-nums mt-0.5">今期 {yen(cur)} ・ 前期 {yen(pr)}</div>
+                <div className="mt-3 space-y-1">
+                  {Array.from({ length: nW }).map((_, wi) => {
+                    const wc = segWeek(c.id, curSegs, wi), wp = segWeek(c.id, prevSegs, wi);
+                    if (wc === 0 && wp === 0) return null;
+                    return (
+                      <div key={wi} className="flex items-center justify-between text-[11px]">
+                        <span className="text-stone-400 w-8">W{wi + 1}</span>
+                        <span className="flex-1 text-right font-mono tabular-nums text-stone-500 mr-3">{yen(wc)} <span className="text-stone-300">/ {yen(wp)}</span></span>
+                        <span className="w-20 text-right"><Delta v={wc - wp} /></span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          <p className="text-[11px] text-stone-400 px-1">週は月曜区切り。W1＝給与日を含む最初の週（期初・期末は半端な週になります）。</p>
+        </div>
+      );
+    }
+
+    const evalAmount = (expr) => String(expr || "").split("+").reduce((s, n) => s + (Number(n) || 0), 0);
+
+    function AddView({ cats, addExpenses, updateExpense, editing, clearEdit, goHome, sources }) {
+      const [mode, setMode] = useState("single");
+      const [date, setDate] = useState(todayISO());
+      const [source, setSource] = useState(sources[0] || "店");
+      const [memo, setMemo] = useState("");
+      const [amount, setAmount] = useState("");
+      const [catId, setCatId] = useState(cats[0]?.id);
+      const [total, setTotal] = useState("");
+      const [rows, setRows] = useState(cats.slice(0, 2).map((c) => ({ categoryId: c.id, amount: "" })));
+      const [showPad, setShowPad] = useState(false);
+      useEffect(() => { if (editing) { setMode("single"); setDate(editing.date); setSource(editing.source || "店"); setMemo(editing.memo || ""); setAmount(String(editing.amount)); setCatId(editing.categoryId); } }, [editing]);
+      const assigned = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+      const remainder = (Number(total) || 0) - assigned;
+      const reset = () => { setAmount(""); setMemo(""); setTotal(""); setRows(cats.slice(0, 2).map((c) => ({ categoryId: c.id, amount: "" }))); setDate(todayISO()); clearEdit(); };
+      const saveSingle = () => { const amt = evalAmount(amount); if (!amt || !catId) return; if (editing) { updateExpense({ ...editing, date, categoryId: catId, amount: amt, memo, source }); } else { addExpenses([{ id: uid(), date, categoryId: catId, amount: amt, memo, source }]); } reset(); };
+      const saveSplit = () => { const made = rows.filter((r) => Number(r.amount) > 0 && r.categoryId).map((r) => ({ id: uid(), date, categoryId: r.categoryId, amount: Number(r.amount), memo, source })); if (!made.length) return; addExpenses(made); reset(); };
+      return (
+        <div className="space-y-4">
+          {!editing && (
+            <div className="grid grid-cols-3 rounded-xl bg-stone-100 p-1 text-[13px]">
+              {[["single", "1件"], ["split", "レシート分割"], ["shot", "写真で自動"]].map(([k, label]) => (
+                <button key={k} onClick={() => setMode(k)} className={`py-2 rounded-lg font-medium ${mode === k ? "bg-white shadow-sm text-teal-700" : "text-stone-500"}`}>{label}</button>
+              ))}
+            </div>
+          )}
+          {mode === "shot" && !editing ? (<ReceiptShot cats={cats} addExpenses={addExpenses} goHome={goHome} sources={sources} />) : (
+            <>
+              <div className="bg-white rounded-2xl border border-stone-200/80 p-4 space-y-4">
+                {editing && <div className="flex items-center justify-between text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">編集中<button onClick={reset} className="text-stone-400"><X size={16} /></button></div>}
+                {mode !== "split" ? (
+                  <>
+                    <Field label="金額">
+                      <div onClick={() => setShowPad(true)} className="flex items-center gap-2 cursor-pointer select-none">
+                        <span className="text-stone-400 text-lg">¥</span>
+                        <span className="flex-1 text-2xl font-mono tabular-nums leading-none">
+                          {amount ? amount : <span className="text-stone-300">0</span>}
+                        </span>
+                        {amount.includes("+") && <span className="text-sm text-stone-400 font-mono">= {yen(evalAmount(amount))}</span>}
+                      </div>
+                    </Field>
+                    {showPad && <NumPad value={amount} onChange={setAmount} onClose={() => setShowPad(false)} />}
+                    <Field label="カテゴリ"><CatChips cats={cats} value={catId} onChange={setCatId} /></Field>
+                  </>
+                ) : (
+                  <>
+                    <Field label="レシート合計"><div className="flex items-center"><span className="text-stone-400 mr-1 text-lg">¥</span><input inputMode="numeric" value={total} onChange={(e) => setTotal(e.target.value.replace(/[^0-9]/g, ""))} placeholder="0" className="flex-1 text-2xl font-mono tabular-nums outline-none bg-transparent" /></div></Field>
+                    <div className="space-y-2">
+                      {rows.map((r, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <select value={r.categoryId} onChange={(e) => { const v = e.target.value; setRows((p) => p.map((x, j) => (j === i ? { ...x, categoryId: v } : x))); }} className="text-sm border border-stone-200 rounded-lg px-2 py-2 bg-white">{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+                          <div className="flex items-center flex-1 border border-stone-200 rounded-lg px-2"><span className="text-stone-400 text-sm">¥</span><input inputMode="numeric" value={r.amount} onChange={(e) => { const v = e.target.value.replace(/[^0-9]/g, ""); setRows((p) => p.map((x, j) => (j === i ? { ...x, amount: v } : x))); }} placeholder="0" className="flex-1 py-2 font-mono tabular-nums outline-none bg-transparent text-right" /></div>
+                          <button onClick={() => setRows((p) => p.map((x, j) => (j === i ? { ...x, amount: String((Number(x.amount) || 0) + remainder) } : x)))} disabled={remainder === 0} className="text-[11px] text-teal-700 disabled:text-stone-300 px-1">残額</button>
+                          {rows.length > 1 && <button onClick={() => setRows((p) => p.filter((_, j) => j !== i))} className="text-stone-300"><X size={16} /></button>}
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between pt-1"><button onClick={() => setRows((p) => [...p, { categoryId: cats[0]?.id, amount: "" }])} className="text-xs text-teal-700">+ カテゴリ追加</button><span className={`text-xs font-mono tabular-nums ${remainder === 0 ? "text-stone-400" : "text-amber-700"}`}>未割当 {yen(remainder)}</span></div>
+                    </div>
+                  </>
+                )}
+                <Field label="購入元"><div className="flex flex-wrap gap-2">{sources.map((s) => (<button key={s} onClick={() => setSource(s)} className={`px-3 py-1.5 rounded-full text-sm border ${source === s ? "border-teal-600 bg-teal-50 text-teal-700" : "border-stone-200 text-stone-500"}`}>{s}</button>))}</div></Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="日付"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2 bg-white" /></Field>
+                  <Field label="メモ（任意）"><input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="店名など" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2 bg-white" /></Field>
+                </div>
+              </div>
+              <button onClick={mode === "split" ? saveSplit : saveSingle} className="w-full bg-teal-700 text-white rounded-2xl py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform"><Check size={18} /> {editing ? "更新する" : "記録する"}</button>
+            </>
+          )}
+        </div>
+      );
+    }
+    function NumPad({ value, onChange, onClose }) {
+      const press = (k) => {
+        if (k === "←") { onChange(value.slice(0, -1)); return; }
+        if (k === "C")  { onChange(""); return; }
+        if (k === "+")  { if (!value || value.endsWith("+")) return; onChange(value + "+"); return; }
+        const segs = value.split("+");
+        const cur = segs[segs.length - 1];
+        if (cur === "0") { segs[segs.length - 1] = k; onChange(segs.join("+")); }
+        else { onChange(value + k); }
+      };
+      const total = evalAmount(value);
+      const done = () => { onChange(total > 0 ? String(total) : ""); onClose(); };
+      const KEYS = ["7","8","9","←","4","5","6","+","1","2","3","C","","0","","✓"];
+      return (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{background:"rgba(0,0,0,0.25)"}} onClick={onClose}>
+          <div className="bg-white rounded-t-2xl shadow-xl px-4 pt-4 pb-6" onClick={e => e.stopPropagation()}>
+            <div className="text-right mb-3 px-1">
+              <div className="text-sm text-stone-400 font-mono min-h-[1.2em] tabular-nums">{value || " "}</div>
+              <div className="text-3xl font-bold font-mono tabular-nums">{yen(total)}</div>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {KEYS.map((k, i) => k ? (
+                <button key={i} onClick={() => k === "✓" ? done() : press(k)}
+                  className={`py-4 rounded-xl text-xl font-semibold active:scale-95 transition-transform
+                    ${k === "✓" ? "bg-teal-700 text-white" :
+                      k === "+" ? "bg-teal-50 text-teal-700 border border-teal-200" :
+                      k === "C" ? "bg-rose-50 text-rose-500 border border-rose-100" :
+                      k === "←" ? "bg-stone-100 text-stone-600" :
+                      "bg-stone-100 text-stone-900"}`}>
+                  {k}
+                </button>
+              ) : <div key={i} />)}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    function Field({ label, children }) { return (<label className="block"><span className="text-[11px] text-stone-400 mb-1.5 block">{label}</span>{children}</label>); }
+    function CatChips({ cats, value, onChange }) { return (<div className="flex flex-wrap gap-2">{cats.map((c) => (<button key={c.id} onClick={() => onChange(c.id)} className={`px-3 py-1.5 rounded-full text-sm border ${value === c.id ? "border-teal-600 bg-teal-50 text-teal-700 font-medium" : "border-stone-200 text-stone-500"}`}>{c.name}</button>))}</div>); }
+
+    function CatSubtotals({ items, cats }) {
+      const map = {};
+      items.forEach((it) => { if (it.amount) map[it.categoryId] = (map[it.categoryId] || 0) + it.amount; });
+      const entries = Object.entries(map);
+      if (!entries.length) return null;
+      return (
+        <div className="flex flex-wrap gap-1.5">
+          {entries.map(([cid, v]) => (
+            <span key={cid} className="text-[11px] bg-stone-100 text-stone-600 rounded-full px-2 py-0.5 font-mono tabular-nums">
+              {cats.find((c) => c.id === cid)?.name || "—"} {yen(v)}
+            </span>
+          ))}
+        </div>
+      );
+    }
+
+    function ReceiptShot({ cats, addExpenses, goHome, sources }) {
+      const [mode, setMode] = useState("multi");
+      const [status, setStatus] = useState("idle");
+      const [err, setErr] = useState("");
+      const [progress, setProgress] = useState({ done: 0, total: 0 });
+      const [receipts, setReceipts] = useState([]);
+      const matchCat = (name) => cats.find((c) => c.name === name)?.id || cats[0]?.id;
+      const validDate = (d) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : todayISO());
+      const mkReceipt = (parsed) => {
+        const pm = parsed.payment_method || "現金";
+        const baseDate = validDate(parsed.date);
+        return {
+          id: uid(), date: baseDate, paymentMethod: pm, source: sources[0] || "店",
+          items: (parsed.items || []).map((it) => ({ id: uid(), name: it.name || "", amount: Number(it.amount) || 0, categoryId: matchCat(it.category) })),
+        };
+      };
+      const handleFiles = async (fileList) => {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
+        setStatus("reading"); setErr(""); setProgress({ done: 0, total: mode === "long" ? 1 : files.length });
+        try {
+          const imgs = await Promise.all(files.map((f) => readImage(f)));
+          let result = [];
+          if (mode === "long") {
+            result = [mkReceipt(await analyzeReceipt(imgs, cats))];
+            setProgress({ done: 1, total: 1 });
+          } else {
+            for (let i = 0; i < imgs.length; i++) {
+              result.push(mkReceipt(await analyzeReceipt([imgs[i]], cats)));
+              setProgress({ done: i + 1, total: imgs.length });
+            }
+          }
+          if (!result.some((r) => r.items.length)) { setErr("品目を読み取れませんでした。明るく撮り直すか手入力を。"); setStatus("error"); return; }
+          setReceipts(result); setStatus("review");
+        } catch (e) { setErr(e.message || "読み取りに失敗しました。"); setStatus("error"); }
+      };
+      const setRField = (rid, patch) => setReceipts((p) => p.map((r) => (r.id === rid ? { ...r, ...patch } : r)));
+      const setIt = (rid, iid, patch) => setReceipts((p) => p.map((r) => (r.id === rid ? { ...r, items: r.items.map((it) => (it.id === iid ? { ...it, ...patch } : it)) } : r)));
+      const delIt = (rid, iid) => setReceipts((p) => p.map((r) => (r.id === rid ? { ...r, items: r.items.filter((it) => it.id !== iid) } : r)));
+      const addIt = (rid) => setReceipts((p) => p.map((r) => (r.id === rid ? { ...r, items: [...r.items, { id: uid(), name: "", amount: 0, categoryId: cats[0]?.id }] } : r)));
+      const delReceipt = (rid) => setReceipts((p) => p.filter((r) => r.id !== rid));
+      const allItems = receipts.flatMap((r) => r.items);
+      const grand = allItems.reduce((s, it) => s + (it.amount || 0), 0);
+      const saveAll = () => {
+        const made = [];
+        receipts.forEach((r) => {
+          const validItems = r.items.filter((it) => it.amount > 0);
+          if (!validItems.length) return;
+          // カテゴリ別に集計して1カテゴリ1件で保存
+          const byCat = {};
+          validItems.forEach((it) => {
+            if (!byCat[it.categoryId]) byCat[it.categoryId] = 0;
+            byCat[it.categoryId] += it.amount;
+          });
+          const itemNames = validItems.map((it) => it.name).filter(Boolean).join("・");
+          Object.entries(byCat).forEach(([catId, total]) => {
+            made.push({ id: uid(), date: r.date, categoryId: catId, amount: total, memo: itemNames, source: r.source });
+          });
+        });
+        if (!made.length) return;
+        addExpenses(made);
+        setReceipts([]);
+        setStatus("idle");
+      };
+      if (status === "review") return (
+        <div className="space-y-4">
+          <div className="bg-teal-50 border border-teal-100 rounded-2xl p-3">
+            <div className="text-[11px] text-teal-800 font-semibold mb-1.5">カテゴリ別合計（{receipts.length}枚 / 計 {yen(grand)}）</div>
+            <CatSubtotals items={allItems} cats={cats} />
+          </div>
+          {receipts.map((r, ri) => {
+            const rtotal = r.items.reduce((s, it) => s + (it.amount || 0), 0);
+            return (
+              <div key={r.id} className="bg-white rounded-2xl border border-stone-200/80 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-stone-400 font-mono">#{ri + 1}</span>
+                  <input type="date" value={r.date} onChange={(e) => setRField(r.id, { date: e.target.value })} className="text-xs border border-stone-200 rounded-lg px-2 py-1.5" />
+                  {r.paymentMethod === "クレジット" && <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-100 rounded-full px-2 py-0.5 shrink-0">翌月払い</span>}
+                  {r.paymentMethod === "電子マネー" && <span className="text-[10px] bg-green-50 text-green-700 border border-green-100 rounded-full px-2 py-0.5 shrink-0">電子マネー</span>}
+                  <select value={r.source} onChange={(e) => setRField(r.id, { source: e.target.value })} className="text-xs border border-stone-200 rounded-lg px-1.5 py-1.5 bg-white">{sources.map((s) => <option key={s}>{s}</option>)}</select>
+                  <span className="flex-1 text-right font-mono tabular-nums text-sm font-semibold">{yen(rtotal)}</span>
+                  <button onClick={() => delReceipt(r.id)} className="text-stone-300"><Trash2 size={15} /></button>
+                </div>
+                <div className="divide-y divide-stone-100">
+                  {r.items.map((it) => (
+                    <div key={it.id} className="flex items-center gap-2 py-2">
+                      <input value={it.name} onChange={(e) => setIt(r.id, it.id, { name: e.target.value })} className="flex-1 min-w-0 text-sm outline-none bg-transparent" placeholder="品名" />
+                      <select value={it.categoryId} onChange={(e) => setIt(r.id, it.id, { categoryId: e.target.value })} className="text-xs border border-stone-200 rounded-lg px-1.5 py-1.5 bg-white">{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+                      <div className="flex items-center w-20 border border-stone-200 rounded-lg px-1.5"><span className="text-stone-400 text-xs">¥</span><input inputMode="numeric" value={it.amount} onChange={(e) => setIt(r.id, it.id, { amount: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })} className="w-full py-1.5 text-right font-mono tabular-nums text-sm outline-none" /></div>
+                      <button onClick={() => delIt(r.id, it.id)} className="text-stone-300"><X size={14} /></button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between">
+                  <button onClick={() => addIt(r.id)} className="text-xs text-teal-700">+ 品目を追加</button>
+                </div>
+                <CatSubtotals items={r.items} cats={cats} />
+              </div>
+            );
+          })}
+          <button onClick={saveAll} className="w-full bg-teal-700 text-white rounded-2xl py-3.5 font-semibold flex items-center justify-center gap-2"><Check size={18} /> すべて記録（{allItems.filter((i) => i.amount > 0).length}件）</button>
+          <button onClick={() => { setReceipts([]); setStatus("idle"); }} className="w-full text-sm text-stone-400 py-1">やり直す</button>
+        </div>
+      );
+      return (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 rounded-xl bg-stone-100 p-1 text-[12px]">
+            {[["multi", "複数レシート（日別）"], ["long", "長いレシート（結合）"]].map(([k, label]) => (
+              <button key={k} onClick={() => setMode(k)} className={`py-2 rounded-lg font-medium ${mode === k ? "bg-white shadow-sm text-teal-700" : "text-stone-500"}`}>{label}</button>
+            ))}
+          </div>
+          <div className="bg-white rounded-2xl border border-stone-200/80 p-6 text-center space-y-4">
+            {status === "reading" ? (
+              <div className="py-8 flex flex-col items-center gap-3 text-stone-500"><Loader2 size={28} className="animate-spin text-teal-700" /><span className="text-sm">読み取り中… {progress.total > 1 ? `(${progress.done}/${progress.total})` : ""}</span></div>
+            ) : (
+              <>
+                <Camera size={30} className="mx-auto text-teal-700" />
+                <div className="text-sm text-stone-600 leading-relaxed">
+                  {mode === "long" ? "長いレシートを上→下の順に複数枚撮る／選ぶと、1枚として結合して読み取ります。" : "複数のレシートをまとめて撮る／選ぶと、それぞれの日付で読み取って仕分けます。"}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="block"><div className="bg-teal-700 text-white rounded-xl py-2.5 text-sm font-semibold cursor-pointer">撮影</div><input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} /></label>
+                  <label className="block"><div className="border border-teal-600 text-teal-700 rounded-xl py-2.5 text-sm font-semibold cursor-pointer">アップロード</div><input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} /></label>
+                </div>
+                {status === "error" && <div className="text-xs text-rose-600">{err}</div>}
+                <p className="text-[11px] text-stone-400 leading-relaxed">画像は端末に保存されません。読み取りのためClaudeに送られ、結果を受け取ったら破棄されます。</p>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function ShopView({ exps, cats, sources }) {
+      const [query, setQuery] = useState("");
+      const [sortBy, setSortBy] = useState("amount");
+
+      const shops = useMemo(() => {
+        const map = {};
+        exps.forEach((e) => {
+          const key = (e.source || "").trim() || "（購入元なし）";
+          if (!map[key]) map[key] = { name: key, total: 0, count: 0, lastDate: "" };
+          map[key].total += e.amount;
+          map[key].count += 1;
+          if (e.date > map[key].lastDate) map[key].lastDate = e.date;
+        });
+        return Object.values(map);
+      }, [exps]);
+
+      const filtered = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        const list = q ? shops.filter((s) => s.name.toLowerCase().includes(q)) : shops;
+        return [...list].sort((a, b) => {
+          if (sortBy === "amount") return b.total - a.total;
+          if (sortBy === "count") return b.count - a.count;
+          return b.lastDate.localeCompare(a.lastDate);
+        });
+      }, [shops, query, sortBy]);
+
+      const grandTotal = filtered.reduce((s, r) => s + r.total, 0);
+
+      if (!exps.length) return (
+        <div className="text-center text-stone-400 py-20 text-sm">まだ記録がありません。<br />「入力」から追加。</div>
+      );
+
+      return (
+        <div className="space-y-3">
+          <input
+            value={query} onChange={(e) => setQuery(e.target.value)}
+            placeholder="購入元で絞り込み…"
+            className="w-full text-sm border border-stone-200 rounded-xl px-3 py-2.5 bg-white outline-none"
+          />
+          <div className="flex gap-1.5">
+            {[["amount", "金額順"], ["count", "回数順"], ["recent", "最近順"]].map(([k, label]) => (
+              <button key={k} onClick={() => setSortBy(k)}
+                className={`px-3 py-1 rounded-full text-[11px] border ${sortBy === k ? "border-teal-600 bg-teal-50 text-teal-700 font-medium" : "border-stone-200 text-stone-500"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="text-[11px] text-stone-400 px-1 font-mono">{filtered.length}件 / 合計 {yen(grandTotal)}</div>
+          <div className="bg-white rounded-2xl border border-stone-200/80 divide-y divide-stone-100">
+            {filtered.map((s) => {
+              const pct = grandTotal > 0 ? (s.total / grandTotal) * 100 : 0;
+              return (
+                <div key={s.name} className="px-4 py-3">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-medium text-sm truncate flex-1">{s.name}</span>
+                    <span className="font-mono tabular-nums font-semibold text-sm shrink-0">{yen(s.total)}</span>
+                  </div>
+                  <div className="flex items-center justify-between mt-1 text-[11px] text-stone-400">
+                    <span>{s.count}回 ・ 最終 {fmtMD(s.lastDate)}</span>
+                    <span className="font-mono tabular-nums">{Math.round(pct)}%</span>
+                  </div>
+                  <div className="mt-1.5 h-1 rounded-full bg-stone-100 overflow-hidden">
+                    <div className="h-full rounded-full bg-teal-600 transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    function SavingsView({ savings, setSavings }) {
+      const [name, setName] = useState("");
+      const [amount, setAmount] = useState("");
+      const [memo, setMemo] = useState("");
+      const [editId, setEditId] = useState(null);
+      const total = savings.reduce((s, r) => s + r.amount, 0);
+      const reset = () => { setName(""); setAmount(""); setMemo(""); setEditId(null); };
+      const startEditSaving = (r) => { setName(r.name); setAmount(String(r.amount)); setMemo(r.memo || ""); setEditId(r.id); };
+      const saveSaving = () => {
+        const amt = Number(amount); if (!name.trim() || !amt) return;
+        if (editId) {
+          setSavings((p) => p.map((r) => r.id === editId ? { ...r, name: name.trim(), amount: amt, memo: memo.trim() } : r));
+        } else {
+          setSavings((p) => [...p, { id: uid(), name: name.trim(), amount: amt, memo: memo.trim() }]);
+        }
+        reset();
+      };
+      const delSaving = (id) => { if (confirm("この項目を削除しますか？")) setSavings((p) => p.filter((r) => r.id !== id)); };
+      return (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-stone-200/80 p-4">
+            <div className="text-[11px] text-stone-400 mb-1">貯金合計</div>
+            <div className="text-3xl font-bold font-mono tabular-nums text-teal-700">{yen(total)}</div>
+            <div className="text-[11px] text-stone-400 mt-1">※この金額はホームの収支には影響しません</div>
+          </div>
+          {savings.length > 0 && (
+            <div className="bg-white rounded-2xl border border-stone-200/80 divide-y divide-stone-100">
+              {savings.map((r) => (
+                <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+                  <PiggyBank size={16} className="text-teal-600 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{r.name}</div>
+                    {r.memo && <div className="text-xs text-stone-400 truncate">{r.memo}</div>}
+                  </div>
+                  <span className="font-mono tabular-nums font-semibold text-sm">{yen(r.amount)}</span>
+                  <button onClick={() => startEditSaving(r)} className="text-stone-300 hover:text-teal-700"><Pencil size={15} /></button>
+                  <button onClick={() => delSaving(r.id)} className="text-stone-300 hover:text-rose-600"><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          {savings.length === 0 && (
+            <div className="text-center text-stone-400 py-8 text-sm">まだ項目がありません。<br />下から追加してください。</div>
+          )}
+          <div className="bg-white rounded-2xl border border-stone-200/80 p-4 space-y-3">
+            <div className="text-xs font-semibold text-stone-500">{editId ? "項目を編集" : "項目を追加"}</div>
+            {editId && (
+              <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                編集中<button onClick={reset} className="ml-auto text-stone-400"><X size={16} /></button>
+              </div>
+            )}
+            <Field label="名称（例：教育費、旅行用）">
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="名称" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2" />
+            </Field>
+            <Field label="金額">
+              <div className="flex items-center border border-stone-200 rounded-lg px-2">
+                <span className="text-stone-400 text-lg mr-1">¥</span>
+                <input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))} placeholder="0" className="flex-1 text-2xl font-mono tabular-nums outline-none bg-transparent py-1" />
+              </div>
+            </Field>
+            <Field label="メモ（任意）">
+              <input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="用途・目的など" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2" />
+            </Field>
+            <button onClick={saveSaving} className="w-full bg-teal-700 text-white rounded-2xl py-3.5 font-semibold flex items-center justify-center gap-2 active:scale-[0.99] transition-transform">
+              <Check size={18} /> {editId ? "更新する" : "追加する"}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    function LogView({ exps, cats, onDelete, onEdit, sources }) {
+      const catName = (id) => cats.find((c) => c.id === id)?.name || "—";
+      const [filterMode, setFilterMode] = useState("all"); // "all" | "range" | "day"
+      const [rangeFrom, setRangeFrom] = useState("");
+      const [rangeTo, setRangeTo] = useState("");
+      const [singleDay, setSingleDay] = useState(todayISO());
+
+      const filtered = useMemo(() => {
+        if (filterMode === "day") return exps.filter((e) => e.date === singleDay);
+        if (filterMode === "range") {
+          const from = rangeFrom || "0000-00-00";
+          const to = rangeTo || "9999-99-99";
+          return exps.filter((e) => e.date >= from && e.date <= to);
+        }
+        return exps;
+      }, [exps, filterMode, rangeFrom, rangeTo, singleDay]);
+
+      const grouped = useMemo(() => {
+        const g = {};
+        [...filtered].sort((a, b) => (a.date < b.date ? 1 : -1)).forEach((e) => { (g[e.date] = g[e.date] || []).push(e); });
+        return g;
+      }, [filtered]);
+
+      const total = filtered.reduce((s, e) => s + e.amount, 0);
+
+      if (!exps.length) return <div className="text-center text-stone-400 py-20 text-sm">まだ記録がありません。<br />「入力」から追加。</div>;
+      return (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-stone-200/80 p-3 space-y-3">
+            <div className="grid grid-cols-3 rounded-xl bg-stone-100 p-1 text-[12px]">
+              {[["all", "すべて"], ["range", "期間"], ["day", "日付"]].map(([k, label]) => (
+                <button key={k} onClick={() => setFilterMode(k)} className={`py-1.5 rounded-lg font-medium ${filterMode === k ? "bg-white shadow-sm text-teal-700" : "text-stone-500"}`}>{label}</button>
+              ))}
+            </div>
+            {filterMode === "range" && (
+              <div className="flex items-center gap-2">
+                <input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className="flex-1 text-sm border border-stone-200 rounded-lg px-2 py-1.5 bg-white" />
+                <span className="text-stone-400 text-xs shrink-0">〜</span>
+                <input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="flex-1 text-sm border border-stone-200 rounded-lg px-2 py-1.5 bg-white" />
+              </div>
+            )}
+            {filterMode === "day" && (
+              <input type="date" value={singleDay} onChange={(e) => setSingleDay(e.target.value)} className="w-full text-sm border border-stone-200 rounded-lg px-2 py-1.5 bg-white" />
+            )}
+          </div>
+
+          {filtered.length > 0 && (
+            <div className="flex justify-between text-[11px] text-stone-400 px-1 font-mono">
+              <span>{filtered.length}件</span>
+              <span>合計 {yen(total)}</span>
+            </div>
+          )}
+
+          {filtered.length === 0 ? (
+            <div className="text-center text-stone-400 py-16 text-sm">該当する記録がありません。</div>
+          ) : (
+            <div className="space-y-5">
+              {Object.entries(grouped).map(([date, items]) => (
+                <div key={date}>
+                  <div className="text-[11px] text-stone-400 mb-1.5 font-mono">{fmtMD(date)}</div>
+                  <div className="bg-white rounded-2xl border border-stone-200/80 divide-y divide-stone-100">
+                    {items.map((e) => (
+                      <div key={e.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{catName(e.categoryId)}
+                            {e.source === "固定費" && <span className="ml-2 text-[10px] text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded">固定費</span>}
+                            {e.source && e.source !== "固定費" && <span className="ml-2 text-[10px] text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">{e.source}</span>}
+                          </div>
+                          {e.memo && <div className="text-xs text-stone-400 truncate">{e.memo}</div>}
+                        </div>
+                        <span className="font-mono tabular-nums font-semibold">{yen(e.amount)}</span>
+                        <button onClick={() => onEdit(e)} className="text-stone-300 hover:text-teal-700"><Pencil size={15} /></button>
+                        <button onClick={() => onDelete(e.id)} className="text-stone-300 hover:text-rose-600"><Trash2 size={15} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function SortableList({ items, setItems, renderItem }) {
+      const [dragState, _setDragState] = useState(null);
+      const dragRef = useRef(null);
+      const timerRef = useRef(null);
+      const rowRefs = useRef([]);
+
+      const setDrag = useCallback((val) => {
+        const next = typeof val === 'function' ? val(dragRef.current) : val;
+        dragRef.current = next;
+        _setDragState(next);
+      }, []);
+
+      const getOverIdx = useCallback((clientY) => {
+        let best = dragRef.current?.overIdx ?? 0, bestD = Infinity;
+        rowRefs.current.forEach((el, i) => {
+          if (!el) return;
+          const r = el.getBoundingClientRect();
+          const d = Math.abs(clientY - (r.top + r.height / 2));
+          if (d < bestD) { bestD = d; best = i; }
+        });
+        return best;
+      }, []);
+
+      useEffect(() => {
+        if (!dragState) return;
+        const onMove = (e) => {
+          const y = e.clientY;
+          if (y == null) return;
+          e.preventDefault();
+          const oi = getOverIdx(y);
+          if (oi !== dragRef.current?.overIdx) setDrag(d => d ? { ...d, overIdx: oi } : d);
+        };
+        const onUp = () => {
+          const d = dragRef.current;
+          if (d && d.origIdx !== d.overIdx) {
+            setItems(prev => {
+              const next = [...prev];
+              const [m] = next.splice(d.origIdx, 1);
+              next.splice(d.overIdx, 0, m);
+              return next;
+            });
+          }
+          setDrag(null);
+        };
+        document.addEventListener('pointermove', onMove, { passive: false });
+        document.addEventListener('pointerup', onUp);
+        document.addEventListener('pointercancel', onUp);
+        return () => {
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onUp);
+          document.removeEventListener('pointercancel', onUp);
+        };
+      }, [!!dragState]);
+
+      const displayItems = useMemo(() => {
+        if (!dragState || dragState.origIdx === dragState.overIdx) return items;
+        const { origIdx, overIdx } = dragState;
+        const next = [...items];
+        const [m] = next.splice(origIdx, 1);
+        next.splice(overIdx, 0, m);
+        return next;
+      }, [items, dragState]);
+
+      const draggedItem = dragState ? items[dragState.origIdx] : null;
+
+      const handleGripDown = (e, i) => {
+        e.preventDefault();
+        clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => {
+          if (navigator.vibrate) navigator.vibrate(30);
+          setDrag({ origIdx: i, overIdx: i });
+        }, 400);
+      };
+
+      const cancelTimer = () => clearTimeout(timerRef.current);
+
+      return (
+        <div className="select-none">
+          {displayItems.map((item, i) => {
+            const key = item?.id ?? item;
+            const isDragged = item === draggedItem;
+            return (
+              <div key={key} ref={el => { rowRefs.current[i] = el; }}
+                className={`flex items-center gap-1 transition-all duration-100 ${isDragged ? 'opacity-50 bg-stone-50 rounded-lg' : ''}`}
+              >
+                <div className="touch-none shrink-0 py-2 px-1"
+                  style={{ cursor: dragState ? 'grabbing' : 'grab' }}
+                  onPointerDown={(e) => handleGripDown(e, i)}
+                  onPointerUp={cancelTimer}
+                  onPointerCancel={cancelTimer}
+                >
+                  <GripVertical size={15} className={isDragged ? 'text-teal-400' : 'text-stone-300'} />
+                </div>
+                {renderItem(item, isDragged)}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    function SettingsView({ cats, setCats, exps, setExps, incomes, setIncomes, recurring, setRecurring, settings, setSettings, setApplied, period, addExpenses, sources, setSources }) {
+      const [newName, setNewName] = useState("");
+      const [newSource, setNewSource] = useState("");
+      const [apiKey, setApiKey] = useState(() => localStorage.getItem("kakeibo:apiKey") || "");
+      const [apiKeySaved, setApiKeySaved] = useState(false);
+      const saveApiKey = () => { localStorage.setItem("kakeibo:apiKey", apiKey.trim()); setApiKeySaved(true); setTimeout(() => setApiKeySaved(false), 2000); };
+      const [paste, setPaste] = useState("");
+      const [incAmt, setIncAmt] = useState(""); const [incDate, setIncDate] = useState(period.start); const [incMemo, setIncMemo] = useState("給与");
+      const [rcName, setRcName] = useState(""); const [rcAmt, setRcAmt] = useState(""); const [rcCat, setRcCat] = useState(cats[0]?.id);
+      const periodIncomes = incomes.filter((i) => i.date >= period.start && i.date <= period.end);
+      const periodIncomeTotal = periodIncomes.reduce((s, i) => s + i.amount, 0);
+      const budgetSum = cats.reduce((s, c) => s + (c.budget || 0), 0);
+      const recurringSum = recurring.reduce((s, r) => s + r.amount, 0);
+      const addIncome = () => { const a = Number(incAmt); if (!a) return; setIncomes((p) => [{ id: uid(), date: incDate, amount: a, memo: incMemo || "給与" }, ...p]); setIncAmt(""); };
+      const delIncome = (id) => setIncomes((p) => p.filter((i) => i.id !== id));
+      const addRecurring = () => {
+        const a = Number(rcAmt); if (!rcName.trim() || !a || !rcCat) return;
+        const def = { id: uid(), name: rcName.trim(), amount: a, categoryId: rcCat };
+        setRecurring((p) => [...p, def]);
+        addExpenses([{ id: uid(), date: period.start, categoryId: rcCat, amount: a, memo: def.name, source: "固定費" }]);
+        setRcName(""); setRcAmt("");
+      };
+      const delRecurring = (id) => setRecurring((p) => p.filter((r) => r.id !== id));
+      const setBudget = (id, v) => setCats((p) => p.map((c) => (c.id === id ? { ...c, budget: Number(v) || 0 } : c)));
+      const rename = (id, v) => setCats((p) => p.map((c) => (c.id === id ? { ...c, name: v } : c)));
+      const addCat = () => { if (!newName.trim()) return; setCats((p) => [...p, { id: uid(), name: newName.trim(), budget: 0, color: "#0f766e" }]); setNewName(""); };
+      const delCat = (id) => { if (confirm("このカテゴリを削除しますか？（記録は残ります）")) setCats((p) => p.filter((c) => c.id !== id)); };
+      const parseDateStr = (s) => { s = (s || "").trim(); if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(s)) { const [y, mo, d] = s.split(/[-/]/); return `${y}-${pad(mo)}-${pad(d)}`; } if (/^\d{1,2}\/\d{1,2}$/.test(s)) { const [mo, d] = s.split("/"); return `${new Date().getFullYear()}-${pad(mo)}-${pad(d)}`; } return null; };
+      const importText = () => {
+        const made = [];
+        paste.split("\n").map((l) => l.trim()).filter(Boolean).forEach((l) => {
+          const parts = l.split(",").map((x) => (x || "").trim()); let date = todayISO(), c, a, m;
+          if (parts.length >= 4 && parseDateStr(parts[0])) { date = parseDateStr(parts[0]); [, c, a, m] = parts; } else { [c, a, m] = parts; }
+          const amt = Number((a || "").replace(/[^0-9]/g, "")); if (!amt || !c) return;
+          const cat = cats.find((x) => x.name === c) || cats[0];
+          made.push({ id: uid(), date, categoryId: cat.id, amount: amt, memo: m || "", source: /amazon/i.test(m || "") ? "Amazon" : "その他" });
+        });
+        if (!made.length) { alert("読み取れる行がありません。「日付,カテゴリ,金額,メモ」で1行1件に。"); return; }
+        addExpenses(made); setPaste(""); alert(`${made.length}件を取り込みました`);
+      };
+      const exportCSV = () => { const name = (id) => cats.find((c) => c.id === id)?.name || id; const body = "date,category,amount,memo,source\n" + [...exps].sort((a, b) => (a.date < b.date ? 1 : -1)).map((e) => `${e.date},${name(e.categoryId)},${e.amount},"${e.memo || ""}",${e.source || ""}`).join("\n"); dl(body, "kakeibo.csv", "text/csv"); };
+      const exportJSON = () => dl(JSON.stringify({ cats, exps, incomes, recurring, settings }, null, 2), "kakeibo-backup.json", "application/json");
+      const importJSON = (file) => { const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (d.cats && d.exps) { setCats(d.cats); setExps(d.exps); if (d.incomes) setIncomes(d.incomes); if (d.recurring) setRecurring(d.recurring); if (d.settings) setSettings(d.settings); alert("復元しました"); } else alert("形式が違います"); } catch { alert("読み込めませんでした"); } }; r.readAsText(file); };
+      return (
+        <div className="space-y-5">
+          <Section title="締め日（給与サイクル）">
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-stone-600">給与支払日</label>
+              <div className="flex items-center border border-stone-200 rounded-lg px-2"><input inputMode="numeric" value={settings.payday} onChange={(e) => setSettings((s) => ({ ...s, payday: Math.min(31, Math.max(1, Number(e.target.value.replace(/[^0-9]/g, "")) || 1)) }))} className="w-12 py-2 text-center font-mono tabular-nums outline-none" /><span className="text-sm text-stone-400">日</span></div>
+            </div>
+            <label className="flex items-center gap-2 mt-3 text-sm text-stone-600"><input type="checkbox" checked={settings.weekend} onChange={(e) => setSettings((s) => ({ ...s, weekend: e.target.checked }))} />支払日が土日なら前倒し</label>
+            <label className="flex items-center gap-2 mt-2 text-sm text-stone-600"><input type="checkbox" checked={settings.holiday} onChange={(e) => setSettings((s) => ({ ...s, holiday: e.target.checked }))} />祝日も前倒し</label>
+            <div className="mt-3 text-[11px] text-stone-500 bg-stone-50 rounded-lg px-3 py-2 font-mono">今期：{fmtMD(period.start)} 〜 {fmtMD(period.end)}</div>
+          </Section>
+          <Section title="予算のくり越し">
+            <label className="flex items-center justify-between text-sm text-stone-600">
+              <span>使い残し・超過を次の期に持ち越す</span>
+              <input type="checkbox" checked={settings.carryover} onChange={(e) => setSettings((s) => ({ ...s, carryover: e.target.checked }))} />
+            </label>
+            <p className="text-[11px] text-stone-400 mt-2 leading-relaxed">ONにすると、各カテゴリの今期予算に「前期までの残り（または超過）」が加算されます。</p>
+          </Section>
+          <Section title="固定費（毎サイクル自動計上）">
+            {recurring.length > 0 && (
+              <div className="mb-3 space-y-1">
+                {recurring.map((r) => (
+                  <div key={r.id} className="flex items-center gap-2 text-sm py-1">
+                    <Repeat size={13} className="text-teal-600" />
+                    <span className="flex-1 truncate">{r.name} <span className="text-stone-400 text-xs">/ {cats.find((c) => c.id === r.categoryId)?.name || "—"}</span></span>
+                    <span className="font-mono tabular-nums">{yen(r.amount)}</span>
+                    <button onClick={() => delRecurring(r.id)} className="text-stone-300"><Trash2 size={14} /></button>
+                  </div>
+                ))}
+                <div className="flex justify-between text-[11px] text-stone-400 font-mono pt-1 border-t border-stone-100"><span>毎サイクル合計</span><span>{yen(recurringSum)}</span></div>
+              </div>
+            )}
+            <div className="space-y-2 border-t border-stone-100 pt-3">
+              <input value={rcName} onChange={(e) => setRcName(e.target.value)} placeholder="名称（家賃・サブスク・定期便など）" className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2" />
+              <div className="flex items-center gap-2">
+                <select value={rcCat} onChange={(e) => setRcCat(e.target.value)} className="text-sm border border-stone-200 rounded-lg px-2 py-2 bg-white">{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+                <div className="flex items-center flex-1 border border-stone-200 rounded-lg px-2"><span className="text-stone-400 text-sm">¥</span><input inputMode="numeric" value={rcAmt} onChange={(e) => setRcAmt(e.target.value.replace(/[^0-9]/g, ""))} placeholder="金額" className="flex-1 py-2 font-mono tabular-nums text-right outline-none" /></div>
+                <button onClick={addRecurring} className="px-4 rounded-lg bg-teal-700 text-white text-sm">追加</button>
+              </div>
+            </div>
+            <p className="text-[11px] text-stone-400 mt-2 leading-relaxed">登録すると今期に即反映され、以降は毎サイクルの開始日に自動計上されます。</p>
+          </Section>
+          <Section title="今期の収入（給与など）">
+            <div className="flex items-center justify-between mb-3"><span className="text-sm text-stone-500 flex items-center gap-1.5"><Wallet size={15} /> 今期の収入合計</span><span className="font-mono tabular-nums font-semibold">{yen(periodIncomeTotal)}</span></div>
+            {periodIncomes.map((i) => (<div key={i.id} className="flex items-center gap-2 text-sm py-1"><span className="text-stone-400 font-mono text-xs w-16">{fmtMD(i.date)}</span><span className="flex-1">{i.memo}</span><span className="font-mono tabular-nums">{yen(i.amount)}</span><button onClick={() => delIncome(i.id)} className="text-stone-300"><Trash2 size={14} /></button></div>))}
+            <div className="mt-2 space-y-2 border-t border-stone-100 pt-3">
+              <div className="flex items-center gap-2"><div className="flex items-center flex-1 border border-stone-200 rounded-lg px-2"><span className="text-stone-400 text-sm">¥</span><input inputMode="numeric" value={incAmt} onChange={(e) => setIncAmt(e.target.value.replace(/[^0-9]/g, ""))} placeholder="手取り額" className="flex-1 py-2 font-mono tabular-nums text-right outline-none" /></div><input value={incMemo} onChange={(e) => setIncMemo(e.target.value)} className="w-20 text-sm border border-stone-200 rounded-lg px-2 py-2" /></div>
+              <div className="flex items-center gap-2"><input type="date" value={incDate} onChange={(e) => setIncDate(e.target.value)} className="flex-1 text-sm border border-stone-200 rounded-lg px-2 py-2" /><button onClick={addIncome} className="px-5 rounded-lg bg-teal-700 text-white text-sm">追加</button></div>
+            </div>
+            <div className="mt-3 flex justify-between text-[11px] text-stone-400 font-mono tabular-nums"><span>予算合計 {yen(budgetSum)}</span><span className={periodIncomeTotal - budgetSum < 0 ? "text-rose-600" : "text-teal-700"}>未配分 {yen(periodIncomeTotal - budgetSum)}</span></div>
+          </Section>
+          <Section title="カテゴリと予算（1サイクルあたり）">
+            <SortableList
+              items={cats}
+              setItems={setCats}
+              renderItem={(c) => (
+                <>
+                  <input value={c.name} onChange={(e) => rename(c.id, e.target.value)} className="w-24 text-sm border border-stone-200 rounded-lg px-2 py-2" />
+                  <div className="flex items-center flex-1 border border-stone-200 rounded-lg px-2"><span className="text-stone-400 text-sm">¥</span><input inputMode="numeric" value={c.budget} onChange={(e) => setBudget(c.id, e.target.value.replace(/[^0-9]/g, ""))} className="flex-1 py-2 font-mono tabular-nums text-right outline-none" /></div>
+                  <button onClick={() => delCat(c.id)} className="text-stone-300"><Trash2 size={16} /></button>
+                </>
+              )}
+            />
+            <div className="flex gap-2 pt-2 mt-1 border-t border-stone-100"><input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="新しいカテゴリ" className="flex-1 text-sm border border-stone-200 rounded-lg px-2 py-2" /><button onClick={addCat} className="px-4 rounded-lg bg-teal-700 text-white text-sm">追加</button></div>
+          </Section>
+          <Section title="購入元">
+            <SortableList
+              items={sources}
+              setItems={setSources}
+              renderItem={(src) => (
+                <>
+                  <span className="flex-1 text-sm">{src}</span>
+                  <button onClick={() => setSources((s) => s.filter((x) => x !== src))} className="text-stone-300"><Trash2 size={14} /></button>
+                </>
+              )}
+            />
+            <div className="flex gap-2 border-t border-stone-100 pt-3 mt-1">
+              <input value={newSource} onChange={(e) => setNewSource(e.target.value)} placeholder="購入元を追加" className="flex-1 text-sm border border-stone-200 rounded-lg px-2 py-2" />
+              <button onClick={() => { const s = newSource.trim(); if (s && !sources.includes(s)) { setSources((prev) => [...prev, s]); setNewSource(""); } }} className="px-4 rounded-lg bg-teal-700 text-white text-sm">追加</button>
+            </div>
+          </Section>
+
+          <Section title="レシート読み取り（Anthropic APIキー）">
+            <p className="text-[11px] text-stone-400 mb-2 leading-relaxed">写真で自動入力を使うには<a href="https://console.anthropic.com/" className="text-teal-700 underline">Anthropic Console</a>で発行したAPIキーを入力してください。キーはこの端末にのみ保存されます。</p>
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="sk-ant-..." className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 font-mono mb-2" />
+            <button onClick={saveApiKey} className="w-full bg-teal-700 text-white rounded-xl py-2.5 text-sm font-medium">{apiKeySaved ? "✓ 保存しました" : "保存"}</button>
+          </Section>
+          <Section title="テキストから取込">
+            <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={4} placeholder={"1行1件「日付,カテゴリ,金額,メモ」（日付省略可＝今日）\n例）\n2026-06-17,レジャー費,550,PS Store\n6/12,食費,2580,Amazon レモンサワー"} className="w-full text-sm border border-stone-200 rounded-lg px-2 py-2 font-mono" />
+            <button onClick={importText} className="mt-2 w-full bg-teal-700 text-white rounded-xl py-2.5 text-sm font-medium">取り込む</button>
+          </Section>
+          <Section title="データ">
+            <div className="grid grid-cols-2 gap-2">
+              <Btn onClick={exportCSV} icon={Download}>CSV書き出し</Btn>
+              <Btn onClick={exportJSON} icon={Download}>バックアップ</Btn>
+              <label className="col-span-2"><div className="flex items-center justify-center gap-2 text-sm border border-stone-200 rounded-xl py-2.5 cursor-pointer text-stone-600"><Upload size={16} /> バックアップから復元</div><input type="file" accept="application/json" className="hidden" onChange={(e) => e.target.files[0] && importJSON(e.target.files[0])} /></label>
+              <button onClick={() => { if (confirm("すべての支出記録を消します。固定費は次回開いたとき再計上されます。")) { setExps([]); setApplied([]); } }} className="col-span-2 flex items-center justify-center gap-2 text-sm text-rose-600 border border-rose-200 rounded-xl py-2.5"><RotateCcw size={16} /> 支出記録を全消去</button>
+            </div>
+            <p className="text-[11px] text-stone-400 mt-3 leading-relaxed">データはこの端末・このアプリ内にだけ保存。大事な記録は「バックアップ」で書き出しを。</p>
+          </Section>
+        </div>
+      );
+    }
+    function Section({ title, children }) { return (<div><h2 className="text-xs font-semibold text-stone-500 mb-2 px-1">{title}</h2><div className="bg-white rounded-2xl border border-stone-200/80 p-4">{children}</div></div>); }
+    function Btn({ onClick, icon: Icon, children }) { return (<button onClick={onClick} className="flex items-center justify-center gap-2 text-sm border border-stone-200 rounded-xl py-2.5 text-stone-600"><Icon size={16} /> {children}</button>); }
+    function dl(content, name, type) { const b = new Blob([content], { type }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = name; a.click(); URL.revokeObjectURL(u); }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
